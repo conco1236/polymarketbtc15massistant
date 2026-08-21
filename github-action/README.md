@@ -2,7 +2,7 @@
 
 ## Cách hoạt động
 
-Workflow `.github/workflows/polymarket-paper.yml` chạy một paper check mỗi 5 phút và có `workflow_dispatch` để chạy thủ công. Mỗi run là một tiến trình ngắn: lấy REST snapshot, tính signal, áp dụng guard và gửi Telegram. Nó không giữ WebSocket hay đặt lệnh thật.
+Workflow `.github/workflows/polymarket-paper.yml` chạy một paper check mỗi 5 phút và có `workflow_dispatch` để chạy thủ công. Mỗi run là một tiến trình ngắn: lấy REST snapshot, tính signal, áp dụng guard và gửi Telegram. Workflow dùng Coinbase REST cho spot candles vì một số GitHub-hosted runner IP có thể bị Binance trả HTTP 451. Nó không giữ WebSocket hay đặt lệnh thật.
 
 GitHub yêu cầu scheduled workflow nằm trên **default branch** mới chạy lịch; vì vậy hãy merge nhánh `agent/paper-trading-core` vào `main` của fork, hoặc chép các file workflow/runner vào default branch. GitHub có thể trì hoãn scheduled run và workflow public có thể tự tắt sau thời gian dài không có hoạt động repository.
 

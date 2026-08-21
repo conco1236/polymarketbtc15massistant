@@ -46,6 +46,29 @@ async function fetchJson(url, init = {}) {
   return response.json();
 }
 
+async function fetchMarketData(config) {
+  const provider = String(config.MARKET_DATA_PROVIDER ?? "binance").toLowerCase();
+  if (provider === "coinbase") {
+    const base = config.COINBASE_BASE_URL ?? "https://api.exchange.coinbase.com";
+    const [rows, ticker] = await Promise.all([
+      fetchJson(`${base}/products/BTC-USD/candles?granularity=60`),
+      fetchJson(`${base}/products/BTC-USD/ticker`)
+    ]);
+    const klines = rows
+      .slice(0, 120)
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([time, low, high, open, close, volume]) => [time, open, high, low, close, volume]);
+    return { klines, spot: { price: ticker?.price } };
+  }
+
+  const base = config.BINANCE_BASE ?? "https://api.binance.com";
+  const [klines, spot] = await Promise.all([
+    fetchJson(`${base}/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=120`),
+    fetchJson(`${base}/api/v3/ticker/price?symbol=BTCUSDT`)
+  ]);
+  return { klines, spot };
+}
+
 function parseTokenIds(market) {
   const direct = jsonArray(market?.clobTokenIds ?? market?.clob_token_ids);
   if (direct.length >= 2) return direct.slice(0, 2).map(String);
@@ -226,16 +249,15 @@ async function run(env) {
     const tokens = parseTokenIds(market);
     if (tokens.length < 2) throw new Error("CLOB_TOKEN_IDS_MISSING");
     const clobBase = config.CLOB_BASE_URL ?? config.clobBase;
-    const [upPrice, downPrice, upBook, downBook, klines, spot] = await Promise.all([
+    const [upPrice, downPrice, upBook, downBook, marketData] = await Promise.all([
       fetchJson(`${clobBase}/price?token_id=${encodeURIComponent(tokens[0])}&side=BUY`),
       fetchJson(`${clobBase}/price?token_id=${encodeURIComponent(tokens[1])}&side=BUY`),
       fetchJson(`${clobBase}/book?token_id=${encodeURIComponent(tokens[0])}`),
       fetchJson(`${clobBase}/book?token_id=${encodeURIComponent(tokens[1])}`),
-      fetchJson(`${config.BINANCE_BASE ?? config.binanceBase}/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=120`),
-      fetchJson(`${config.BINANCE_BASE ?? config.binanceBase}/api/v3/ticker/price?symbol=BTCUSDT`)
+      fetchMarketData(config)
     ]);
 
-    const candles = klines.map((row) => ({ open: num(row[1]), high: num(row[2]), low: num(row[3]), close: num(row[4]), volume: num(row[5]) })).filter((c) => Object.values(c).every((v) => v !== null));
+    const candles = marketData.klines.map((row) => ({ open: num(row[1]), high: num(row[2]), low: num(row[3]), close: num(row[4]), volume: num(row[5]) })).filter((c) => Object.values(c).every((v) => v !== null));
     const closes = candles.map((c) => c.close);
     const lastClose = closes.at(-1);
     const vwapValue = vwap(candles);
@@ -255,7 +277,7 @@ async function run(env) {
     const selectedPrice = policy.side === "UP" ? marketUp : marketDown;
     const netEdge = policy.edge === undefined ? null : policy.edge - Number(config.AGENT_FEE_RATE ?? config.feeRate) - Number(config.AGENT_SLIPPAGE_RATE ?? config.slippageRate);
     const priceToBeat = marketPriceToBeat(market);
-    const approximatePriceToBeat = priceToBeat ?? (config.AGENT_APPROX_PRICE_TO_BEAT === "true" ? num(spot?.price) : null);
+    const approximatePriceToBeat = priceToBeat ?? (config.AGENT_APPROX_PRICE_TO_BEAT === "true" ? num(marketData.spot?.price) : null);
     const guardReasons = [];
     if (approximatePriceToBeat === null) guardReasons.push("PRICE_TO_BEAT_MISSING");
     if (policy.action !== "ENTER") guardReasons.push(policy.reason);

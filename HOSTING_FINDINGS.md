@@ -14,3 +14,7 @@
 
 - GitHub Docs states scheduled workflows run on the latest commit of the default branch and the shortest schedule interval is once every five minutes. This means the workflow must be merged to the default branch to run on schedule; keeping it only on the feature branch is insufficient.
 - The no-card fallback should therefore be a short-lived REST check, not the current long-running Node/WebSocket process. It can run at `*/5 * * * *`, use concurrency cancellation to avoid overlap, and expose `workflow_dispatch` for manual smoke tests. It may be delayed by GitHub scheduling and public-repository workflows can be disabled after prolonged repository inactivity, so it is not a strict 24/7 SLA.
+
+- Fork main now contains the merged no-card workflow and is 6 commits ahead of the original upstream main. The GitHub Actions page recognizes `Polymarket paper agent` on main but reports 0 workflow runs, so a manual dispatch is needed for the first smoke test.
+
+- First GitHub Actions smoke run was created on main. Run #3 failed after 14 seconds with exit code 1; the public summary hides detailed logs unless signed in. The only visible warning is that action versions target Node 20 but are forced onto Node 24. The failure likely comes from the one-shot runner/runtime and must be diagnosed before claiming deployment success.
