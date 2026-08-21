@@ -4,13 +4,17 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test": "node --test"
   },
   "dependencies": {
-    "ethers": "^6.11.1",
+    "ethers": "^6.17.0",
     "https-proxy-agent": "^7.0.6",
-    "socks-proxy-agent": "^8.0.5",
-    "undici": "^6.21.3",
-    "ws": "^8.18.0"
+    "socks-proxy-agent": "^10.1.0",
+    "undici": "^6.28.0",
+    "ws": "^8.21.3"
+  },
+  "overrides": {
+    "ip-address": "^10.5.0"
   }
 }

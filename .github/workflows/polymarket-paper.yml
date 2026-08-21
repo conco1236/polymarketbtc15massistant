@@ -1,0 +1,62 @@
+name: Polymarket paper agent
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: polymarket-paper-agent
+  cancel-in-progress: true
+
+jobs:
+  paper-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_MIN_INTERVAL_MS: "10000"
+      POLYMARKET_SERIES_ID: "10192"
+      POLYMARKET_SERIES_SLUG: "btc-up-or-down-15m"
+      AGENT_MIN_NET_EDGE: "0.05"
+      AGENT_MAX_SPREAD: "0.08"
+      AGENT_FEE_RATE: "0.02"
+      AGENT_SLIPPAGE_RATE: "0.02"
+      AGENT_APPROX_PRICE_TO_BEAT: "false"
+      SEND_BLOCKED_ALERTS: "false"
+      AGENT_STATE_FILE: ".github-agent-state.json"
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --omit=dev --ignore-scripts
+
+      - name: Restore agent state
+        uses: actions/cache@v4
+        with:
+          path: .github-agent-state.json
+          key: polymarket-agent-state-${{ github.run_id }}
+          restore-keys: polymarket-agent-state-
+
+      - name: Run one paper check
+        run: node github-action/run-paper-check.mjs
+
+      - name: Upload ephemeral health/state artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: polymarket-paper-state-${{ github.run_id }}
+          path: .github-agent-state.json
+          if-no-files-found: ignore
+          retention-days: 3

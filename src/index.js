@@ -25,6 +25,11 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { applyGlobalProxyFromEnv } from "./net/proxy.js";
+import { normalizeObservation } from "./agent/contracts.js";
+import { SignalAgent } from "./agent/agent.js";
+import { buildHealthSnapshot } from "./agent/health.js";
+import { PriceToBeatTracker } from "./agent/priceToBeat.js";
+import { TelegramNotifier } from "./agent/telegramNotifier.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -382,6 +387,7 @@ async function fetchPolymarketSnapshot() {
 
   return {
     ok: true,
+    capturedAt: Date.now(),
     market,
     tokens: { upTokenId, downTokenId },
     prices: {
@@ -399,10 +405,42 @@ async function main() {
   const binanceStream = startBinanceTradeStream({ symbol: CONFIG.symbol });
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream = startChainlinkPriceStream({});
+  let shuttingDown = false;
+  const telegram = new TelegramNotifier({
+    minIntervalMs: Number(process.env.TELEGRAM_MIN_INTERVAL_MS || 10_000)
+  });
+  const shutdown = (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    agent.halt(signal);
+    binanceStream.close?.();
+    polymarketLiveStream.close?.();
+    chainlinkStream.close?.();
+    process.exitCode = 0;
+  };
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
 
   let prevSpotPrice = null;
   let prevCurrentPrice = null;
-  let priceToBeatState = { slug: null, value: null, setAtMs: null };
+  const priceToBeatTracker = new PriceToBeatTracker({ latchWindowMs: Number(process.env.AGENT_PRICE_TO_BEAT_LATCH_MS || 5000) });
+  const agent = new SignalAgent({
+    policyVersion: process.env.AGENT_POLICY_VERSION || "v1-paper",
+    ledgerPath: process.env.AGENT_LEDGER_PATH || "./logs/agent_events.jsonl",
+    riskConfig: {
+      maxSpread: Number(process.env.AGENT_MAX_SPREAD || 0.08),
+      minLiquidity: Number(process.env.AGENT_MIN_LIQUIDITY || 100),
+      minNetEdge: Number(process.env.AGENT_MIN_NET_EDGE || 0.05),
+      maxSignalAgeMs: Number(process.env.AGENT_MAX_SIGNAL_AGE_MS || 5000),
+      cooldownMs: Number(process.env.AGENT_COOLDOWN_MS || 30000),
+      feeRate: Number(process.env.AGENT_FEE_RATE || 0.02),
+      slippageRate: Number(process.env.AGENT_SLIPPAGE_RATE || 0.02),
+      maxPaperNotional: Number(process.env.AGENT_MAX_PAPER_NOTIONAL || 100),
+      liveExecution: false,
+      killSwitch: false
+    }
+  });
+  void telegram.send(`<b>POLY AGENT STARTED</b>\nMode: <code>PAPER_ONLY</code>\nTelegram: <code>${telegram.enabled ? "ENABLED" : "DISABLED"}</code>`, { force: true });
 
   const header = [
     "timestamp",
@@ -416,10 +454,13 @@ async function main() {
     "mkt_down",
     "edge_up",
     "edge_down",
-    "recommendation"
+    "recommendation",
+    "decision_id",
+    "agent_status",
+    "guard_reasons"
   ];
 
-  while (true) {
+  while (!shuttingDown) {
     const timing = getCandleWindowTiming(CONFIG.candleWindowMinutes);
 
     const wsTick = binanceStream.getLast();
@@ -433,9 +474,9 @@ async function main() {
 
     try {
       const chainlinkPromise = polymarketWsPrice !== null
-        ? Promise.resolve({ price: polymarketWsPrice, updatedAt: polymarketWsTick?.updatedAt ?? null, source: "polymarket_ws" })
+        ? Promise.resolve({ price: polymarketWsPrice, updatedAt: polymarketWsTick?.updatedAt ?? null, receivedAt: polymarketWsTick?.receivedAt ?? null, source: "polymarket_ws" })
         : chainlinkWsPrice !== null
-          ? Promise.resolve({ price: chainlinkWsPrice, updatedAt: chainlinkWsTick?.updatedAt ?? null, source: "chainlink_ws" })
+          ? Promise.resolve({ price: chainlinkWsPrice, updatedAt: chainlinkWsTick?.updatedAt ?? null, receivedAt: chainlinkWsTick?.receivedAt ?? null, source: "chainlink_ws" })
           : fetchChainlinkBtcUsd();
 
       const [klines1m, klines5m, lastPrice, chainlink, poly] = await Promise.all([
@@ -514,6 +555,43 @@ async function main() {
 
       const rec = decide({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown });
 
+      const priceToBeatTick = priceToBeatTracker.observe({
+        market: poly.ok ? poly.market : null,
+        currentPrice: chainlink?.price,
+        nowMs: Date.now()
+      });
+      const observation = normalizeObservation({
+        market: poly.ok ? poly.market : null,
+        poly,
+        candles: klines1m,
+        chainlink,
+        binance: { price: wsPrice ?? lastPrice, updatedAt: wsTick?.ts ?? null },
+        priceToBeatOverride: priceToBeatTick.value,
+        timeLeftMin,
+        expectedSeriesId: CONFIG.polymarket.seriesId,
+        freshness: { quote: 5_000, chainlink: 5_000, binance: 10_000 }
+      });
+      const agentDecision = agent.process({
+        observation,
+        scored,
+        timeAware,
+        edge,
+        regime: regimeInfo,
+        policyDecision: rec
+      });
+      const agentHealth = buildHealthSnapshot({ agent, observation });
+      void telegram.notifyDecision(agentDecision);
+      void telegram.notifyHealth(agentHealth);
+      try {
+        fs.mkdirSync("./logs", { recursive: true });
+        const healthPath = path.resolve("./logs/agent_health.json");
+        const healthTmpPath = `${healthPath}.tmp`;
+        fs.writeFileSync(healthTmpPath, JSON.stringify(agentHealth, null, 2), "utf8");
+        fs.renameSync(healthTmpPath, healthPath);
+      } catch {
+        // Health persistence must never interrupt signal evaluation.
+      }
+
       const vwapSlopeLabel = vwapSlope === null ? "-" : vwapSlope > 0 ? "UP" : vwapSlope < 0 ? "DOWN" : "FLAT";
 
       const macdLabel = macd === null
@@ -542,8 +620,8 @@ async function main() {
       const predictValue = `${ANSI.green}LONG${ANSI.reset} ${ANSI.green}${formatProbPct(pLong, 0)}${ANSI.reset} / ${ANSI.red}SHORT${ANSI.reset} ${ANSI.red}${formatProbPct(pShort, 0)}${ANSI.reset}`;
       const predictLine = `Predict: ${predictValue}`;
 
-      const marketUpStr = `${marketUp ?? "-"}${marketUp === null || marketUp === undefined ? "" : "¢"}`;
-      const marketDownStr = `${marketDown ?? "-"}${marketDown === null || marketDown === undefined ? "" : "¢"}`;
+      const marketUpStr = `${marketUp === null || marketUp === undefined ? "-" : (Number(marketUp) * 100).toFixed(0)}${marketUp === null || marketUp === undefined ? "" : "¢"}`;
+      const marketDownStr = `${marketDown === null || marketDown === undefined ? "-" : (Number(marketDown) * 100).toFixed(0)}${marketDown === null || marketDown === undefined ? "" : "¢"}`;
       const polyHeaderValue = `${ANSI.green}↑ UP${ANSI.reset} ${marketUpStr}  |  ${ANSI.red}↓ DOWN${ANSI.reset} ${marketDownStr}`;
 
       const heikenValue = `${consec.color ?? "-"} x${consec.count}`;
@@ -563,11 +641,14 @@ async function main() {
       const vwapValue = `${formatNumber(vwapNow, 0)} (${formatPct(vwapDist, 2)}) | slope: ${vwapSlopeLabel}`;
       const vwapLine = formatNarrativeValue("VWAP", vwapValue, vwapNarrative);
 
-      const signal = rec.action === "ENTER" ? (rec.side === "UP" ? "BUY UP" : "BUY DOWN") : "NO TRADE";
-
-      const actionLine = rec.action === "ENTER"
-        ? `${rec.action} NOW (${rec.phase} ENTRY)`
-        : `NO TRADE (${rec.phase})`;
+      const paperFilled = agentDecision.status === "PAPER_FILLED";
+      const signal = paperFilled ? `PAPER BUY ${agentDecision.side}` : "NO TRADE";
+      const agentReason = Array.isArray(agentDecision.reasonCodes) && agentDecision.reasonCodes.length
+        ? agentDecision.reasonCodes.slice(0, 2).join("|")
+        : "GUARDS_PASSED";
+      const actionLine = paperFilled
+        ? `PAPER EXECUTED (${agentDecision.side})`
+        : `${agentDecision.status} (${agentReason})`;
 
       const spreadUp = poly.ok ? poly.orderbook.up.spread : null;
       const spreadDown = poly.ok ? poly.orderbook.down.spread : null;
@@ -579,22 +660,7 @@ async function main() {
 
       const spotPrice = wsPrice ?? lastPrice;
       const currentPrice = chainlink?.price ?? null;
-      const marketSlug = poly.ok ? String(poly.market?.slug ?? "") : "";
-      const marketStartMs = poly.ok && poly.market?.eventStartTime ? new Date(poly.market.eventStartTime).getTime() : null;
-
-      if (marketSlug && priceToBeatState.slug !== marketSlug) {
-        priceToBeatState = { slug: marketSlug, value: null, setAtMs: null };
-      }
-
-      if (priceToBeatState.slug && priceToBeatState.value === null && currentPrice !== null) {
-        const nowMs = Date.now();
-        const okToLatch = marketStartMs === null ? true : nowMs >= marketStartMs;
-        if (okToLatch) {
-          priceToBeatState = { slug: priceToBeatState.slug, value: Number(currentPrice), setAtMs: nowMs };
-        }
-      }
-
-      const priceToBeat = priceToBeatState.slug === marketSlug ? priceToBeatState.value : null;
+      const priceToBeat = priceToBeatTick.value;
       const currentPriceBaseLine = colorPriceLine({
         label: "CURRENT PRICE",
         price: currentPrice,
@@ -619,7 +685,7 @@ async function main() {
       const currentPriceValue = currentPriceBaseLine.split(": ")[1] ?? currentPriceBaseLine;
       const currentPriceLine = kv("CURRENT PRICE:", `${currentPriceValue} (${ptbDeltaText})`);
 
-      if (poly.ok && poly.market && priceToBeatState.value === null) {
+      if (poly.ok && poly.market) {
         const slug = safeFileSlug(poly.market.slug || poly.market.id || "market");
         if (slug && !dumpedMarkets.has(slug)) {
           dumpedMarkets.add(slug);
@@ -675,6 +741,8 @@ async function main() {
         sepLine(),
         "",
         kv("TA Predict:", predictValue),
+        kv("Agent:", `${agentDecision.status} | ${actionLine}`),
+        kv("Health:", `${agentHealth.status}${agentHealth.staleFeeds.length ? ` | stale:${agentHealth.staleFeeds.join("|")}` : ""}`),
         kv("Heiken Ashi:", heikenLine.split(": ")[1] ?? heikenLine),
         kv("RSI:", rsiLine.split(": ")[1] ?? rsiLine),
         kv("MACD:", macdLine.split(": ")[1] ?? macdLine),
@@ -718,11 +786,15 @@ async function main() {
         marketDown,
         edge.edgeUp,
         edge.edgeDown,
-        rec.action === "ENTER" ? `${rec.side}:${rec.phase}:${rec.strength}` : "NO_TRADE"
+        rec.action === "ENTER" ? `${rec.side}:${rec.phase}:${rec.strength}` : "NO_TRADE",
+        agentDecision.decisionId,
+        agentDecision.status,
+        Array.isArray(agentDecision.reasonCodes) ? agentDecision.reasonCodes.join("|") : ""
       ]);
     } catch (err) {
       console.log("────────────────────────────");
       console.log(`Error: ${err?.message ?? String(err)}`);
+      void telegram.notifyError(err);
       console.log("────────────────────────────");
     }
 

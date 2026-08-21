@@ -170,10 +170,51 @@ Example:
 - encoded: `p%40ss%3Aword`
 - proxy URL: `http://user:p%40ss%3Aword@1.2.3.4:8080`
 
+## Agent mode
+
+The project now includes a guarded **SignalAgent** layer. It keeps live execution disabled and adds:
+
+- immutable market observations with candle and decision keys;
+- market validation and official `PRICE TO BEAT` requirement;
+- quote/Chainlink freshness checks;
+- policy decision plus independent risk governor;
+- one decision per market candle through idempotency;
+- paper-only execution with a notional limit;
+- append-only JSONL event ledger at `logs/agent_events.jsonl`;
+- health state and graceful shutdown on `SIGINT`/`SIGTERM`.
+
+If `PRICE TO BEAT` is missing from the market metadata, the agent may latch the first Chainlink tick only inside the short `AGENT_PRICE_TO_BEAT_LATCH_MS` window after market start (default: 5 seconds). If the process starts later, it deliberately enters `DEGRADED`/`BLOCKED` and does not create a paper action. This is safer than estimating the price from a delayed tick.
+
+Optional agent configuration:
+
+```bash
+export AGENT_POLICY_VERSION=v1-paper
+export AGENT_MAX_SPREAD=0.08
+export AGENT_MIN_LIQUIDITY=100
+export AGENT_MIN_NET_EDGE=0.05
+export AGENT_MAX_SIGNAL_AGE_MS=5000
+export AGENT_COOLDOWN_MS=30000
+export AGENT_FEE_RATE=0.02
+export AGENT_SLIPPAGE_RATE=0.02
+export AGENT_MAX_PAPER_NOTIONAL=100
+export AGENT_LEDGER_PATH=./logs/agent_events.jsonl
+export AGENT_PRICE_TO_BEAT_LATCH_MS=5000
+```
+
+`LIVE_EXECUTION` is intentionally not configurable in this version and remains disabled. The paper executor never opens an exchange connection and rejects non-paper intents.
+
 ## Run
 
 ```bash
 npm start
+```
+
+## Test
+
+Run the deterministic agent tests without external network calls:
+
+```bash
+npm test
 ```
 
 ### Stop
@@ -201,3 +242,11 @@ npm start
 This is not financial advice. Use at your own risk.
 
 created by @krajekis
+
+## No-card deployment
+
+If you cannot use a card, see [`cloudflare-worker/README.md`](cloudflare-worker/README.md). It deploys a paper-only REST/Cron worker with Telegram alerts and KV-backed deduplication. This mode is scheduled rather than continuous WebSocket execution.
+
+## No-card GitHub Actions deployment
+
+If Cloudflare verification is unavailable, see [`github-action/README.md`](github-action/README.md). It runs a paper REST check every five minutes through GitHub Actions and sends Telegram alerts using repository secrets.

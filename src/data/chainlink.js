@@ -11,7 +11,7 @@ const iface = new ethers.Interface(AGGREGATOR_ABI);
 let preferredRpcUrl = null;
 
 let cachedDecimals = null;
-let cachedResult = { price: null, updatedAt: null, source: "chainlink" };
+let cachedResult = { price: null, updatedAt: null, receivedAt: null, source: "chainlink" };
 let cachedFetchedAtMs = 0;
 const MIN_FETCH_INTERVAL_MS = 2_000;
 const RPC_TIMEOUT_MS = 1_500;
@@ -115,6 +115,7 @@ export async function fetchChainlinkBtcUsd() {
       cachedResult = {
         price,
         updatedAt: Number(round.updatedAt) * 1000,
+        receivedAt: now,
         source: "chainlink"
       };
       cachedFetchedAtMs = now;
