@@ -268,7 +268,8 @@ async function run(env) {
     const decision = { decisionId, marketSlug: market.slug, status, side: policy.side ?? null, price: selectedPrice, netEdge, reasonCodes: guardReasons, timeLeftMin, priceToBeat: approximatePriceToBeat, source: priceToBeat === null ? "worker_approx_or_missing" : "market_metadata" };
 
     const alertKey = `${status}:${decisionId}:${guardReasons.join(",")}`;
-    if (alertKey !== state.lastAlertKey && (status === "PAPER_FILLED" || status === "BLOCKED")) {
+    const shouldAlert = status === "PAPER_FILLED" || (status === "BLOCKED" && String(env.SEND_BLOCKED_ALERTS ?? "true").toLowerCase() === "true");
+    if (alertKey !== state.lastAlertKey && shouldAlert) {
       const message = status === "PAPER_FILLED"
         ? ["<b>POLY WORKER PAPER FILL</b>", `Side: <b>${escapeHtml(decision.side)}</b>`, `Market: <code>${escapeHtml(decision.marketSlug)}</code>`, `Price: ${escapeHtml(decision.price)}`, `Net edge: ${escapeHtml(decision.netEdge)}`, `Decision: <code>${escapeHtml(decision.decisionId)}</code>`].join("\n")
         : ["<b>POLY WORKER BLOCKED</b>", `Market: <code>${escapeHtml(decision.marketSlug)}</code>`, `Reasons: <code>${escapeHtml(guardReasons.join(", "))}</code>`].join("\n");

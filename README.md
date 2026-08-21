@@ -246,3 +246,7 @@ created by @krajekis
 ## No-card deployment
 
 If you cannot use a card, see [`cloudflare-worker/README.md`](cloudflare-worker/README.md). It deploys a paper-only REST/Cron worker with Telegram alerts and KV-backed deduplication. This mode is scheduled rather than continuous WebSocket execution.
+
+## No-card GitHub Actions deployment
+
+If Cloudflare verification is unavailable, see [`github-action/README.md`](github-action/README.md). It runs a paper REST check every five minutes through GitHub Actions and sends Telegram alerts using repository secrets.
