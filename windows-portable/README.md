@@ -4,7 +4,14 @@ Bản portable này chạy agent Node.js bằng runtime đi kèm trong thư mụ
 
 ## Chuẩn bị
 
-Giải nén toàn bộ thư mục vào một đường dẫn không có ký tự đặc biệt, ví dụ `C:\PolymarketBTC15mAssistant`. Sao chép `.env.example` thành `.env` rồi điền các giá trị Telegram:
+Giải nén toàn bộ thư mục vào một đường dẫn không có ký tự đặc biệt, ví dụ `C:\PolymarketBTC15mAssistant`. Từ thư mục gốc project, sao chép mẫu cấu hình và điền các giá trị Telegram:
+
+```powershell
+Copy-Item windows-portable\.env.example .env
+```
+
+File `.env` phải nằm cạnh `package.json`, không nằm bên trong `windows-portable`.
+
 
 ```text
 TELEGRAM_BOT_TOKEN=
