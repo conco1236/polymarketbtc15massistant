@@ -242,3 +242,7 @@ npm start
 This is not financial advice. Use at your own risk.
 
 created by @krajekis
+
+## No-card deployment
+
+If you cannot use a card, see [`cloudflare-worker/README.md`](cloudflare-worker/README.md). It deploys a paper-only REST/Cron worker with Telegram alerts and KV-backed deduplication. This mode is scheduled rather than continuous WebSocket execution.

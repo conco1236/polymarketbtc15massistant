@@ -1,0 +1,19 @@
+name = "polymarket-btc15m-paper"
+main = "src/index.js"
+compatibility_date = "2026-08-21"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[kv_namespaces]]
+binding = "AGENT_STATE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+POLYMARKET_SERIES_ID = "10192"
+POLYMARKET_SERIES_SLUG = "btc-up-or-down-15m"
+AGENT_FEE_RATE = "0.02"
+AGENT_SLIPPAGE_RATE = "0.02"
+AGENT_MIN_NET_EDGE = "0.05"
+AGENT_MAX_SPREAD = "0.08"
+AGENT_APPROX_PRICE_TO_BEAT = "false"
