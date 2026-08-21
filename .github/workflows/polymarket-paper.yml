@@ -22,6 +22,7 @@ jobs:
       TELEGRAM_MIN_INTERVAL_MS: "10000"
       POLYMARKET_SERIES_ID: "10192"
       POLYMARKET_SERIES_SLUG: "btc-up-or-down-15m"
+      MARKET_DATA_PROVIDER: "coinbase"
       AGENT_MIN_NET_EDGE: "0.05"
       AGENT_MAX_SPREAD: "0.08"
       AGENT_FEE_RATE: "0.02"
