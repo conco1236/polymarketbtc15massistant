@@ -22,7 +22,7 @@ File `.env` chỉ nằm trên máy Windows và không được commit lên GitHu
 
 ## Chạy
 
-Bấm đúp `start-agent.cmd`. Cửa sổ console sẽ hiển thị market, decision, health và paper action. Ledger/health được lưu trong thư mục `logs`.
+Bấm đúp `PolymarketBTC15mAssistant.exe` trong thư mục `windows-portable`. Đây là executable portable đã nhúng agent bundle; cửa sổ console sẽ hiển thị market, decision, health và paper action. Ledger/health được lưu trong thư mục `logs`. Nếu Windows Defender chặn file chưa ký, có thể chạy `start-agent.cmd` để dùng cùng bundled runtime.
 
 Để dừng an toàn, nhấn `Ctrl+C` trong cửa sổ console. Không chạy đồng thời nhiều bản agent dùng chung cùng một ledger.
 
