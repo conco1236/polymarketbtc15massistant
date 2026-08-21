@@ -11,3 +11,6 @@
 
 - Cloudflare's official Workers product page states Workers Free has 100,000 requests/day and 10 ms CPU per request, and explicitly says free signup requires no credit card.
 - Official Workers KV limits give Free plan allowances of 100,000 reads/day and 1,000 writes/day to different keys, with one write per second to the same key. A five-minute cron writes at most 288 state updates/day; a one-minute cron writes 1,440 and would exceed the 1,000 different-key write limit only if using a new key each run. Reusing one key is within the same-key rate limit, so KV is viable for dedupe state.
+
+- GitHub Docs states scheduled workflows run on the latest commit of the default branch and the shortest schedule interval is once every five minutes. This means the workflow must be merged to the default branch to run on schedule; keeping it only on the feature branch is insufficient.
+- The no-card fallback should therefore be a short-lived REST check, not the current long-running Node/WebSocket process. It can run at `*/5 * * * *`, use concurrency cancellation to avoid overlap, and expose `workflow_dispatch` for manual smoke tests. It may be delayed by GitHub scheduling and public-repository workflows can be disabled after prolonged repository inactivity, so it is not a strict 24/7 SLA.
