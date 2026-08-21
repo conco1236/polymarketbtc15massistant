@@ -46,6 +46,7 @@ export function startChainlinkPriceStream({
 
   let lastPrice = null;
   let lastUpdatedAt = null;
+  let lastReceivedAt = null;
 
   let nextId = 1;
   let subId = null;
@@ -126,6 +127,7 @@ export function startChainlinkPriceStream({
 
         lastPrice = Number.isFinite(price) ? price : lastPrice;
         lastUpdatedAt = updatedAt ? updatedAt * 1000 : lastUpdatedAt;
+        lastReceivedAt = Date.now();
 
         if (typeof onUpdate === "function") {
           onUpdate({ price: lastPrice, updatedAt: lastUpdatedAt, source: "chainlink_ws" });
@@ -143,7 +145,7 @@ export function startChainlinkPriceStream({
 
   return {
     getLast() {
-      return { price: lastPrice, updatedAt: lastUpdatedAt, source: "chainlink_ws" };
+      return { price: lastPrice, updatedAt: lastUpdatedAt, receivedAt: lastReceivedAt, source: "chainlink_ws" };
     },
     close() {
       closed = true;
