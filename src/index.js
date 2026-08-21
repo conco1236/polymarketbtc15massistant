@@ -29,6 +29,7 @@ import { normalizeObservation } from "./agent/contracts.js";
 import { SignalAgent } from "./agent/agent.js";
 import { buildHealthSnapshot } from "./agent/health.js";
 import { PriceToBeatTracker } from "./agent/priceToBeat.js";
+import { TelegramNotifier } from "./agent/telegramNotifier.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -405,6 +406,9 @@ async function main() {
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream = startChainlinkPriceStream({});
   let shuttingDown = false;
+  const telegram = new TelegramNotifier({
+    minIntervalMs: Number(process.env.TELEGRAM_MIN_INTERVAL_MS || 10_000)
+  });
   const shutdown = (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -436,6 +440,7 @@ async function main() {
       killSwitch: false
     }
   });
+  void telegram.send(`<b>POLY AGENT STARTED</b>\nMode: <code>PAPER_ONLY</code>\nTelegram: <code>${telegram.enabled ? "ENABLED" : "DISABLED"}</code>`, { force: true });
 
   const header = [
     "timestamp",
@@ -575,6 +580,8 @@ async function main() {
         policyDecision: rec
       });
       const agentHealth = buildHealthSnapshot({ agent, observation });
+      void telegram.notifyDecision(agentDecision);
+      void telegram.notifyHealth(agentHealth);
       try {
         fs.mkdirSync("./logs", { recursive: true });
         const healthPath = path.resolve("./logs/agent_health.json");
@@ -787,6 +794,7 @@ async function main() {
     } catch (err) {
       console.log("────────────────────────────");
       console.log(`Error: ${err?.message ?? String(err)}`);
+      void telegram.notifyError(err);
       console.log("────────────────────────────");
     }
 

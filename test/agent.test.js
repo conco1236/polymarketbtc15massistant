@@ -119,3 +119,22 @@ test("health reports degraded when agent is blocked by invalid observation", asy
   const fakeAgent = { health: () => ({ state: "DEGRADED", liveExecution: false }) };
   assert.equal(buildHealthSnapshot({ agent: fakeAgent, observation: { freshness: {} } }).status, "DEGRADED");
 });
+
+test("telegram notifier sends paper fill and deduplicates health alerts", async () => {
+  const { TelegramNotifier } = await import("../src/agent/telegramNotifier.js");
+  const calls = [];
+  const notifier = new TelegramNotifier({ token: "test-token", chatId: "123", minIntervalMs: 0, fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, status: 200 };
+  } });
+  assert.equal((await notifier.notifyDecision({ status: "PAPER_FILLED", side: "UP", marketSlug: "btc", action: { price: 0.4 }, economics: { netEdge: 0.1 }, decisionId: "d1" })).status, "SENT");
+  assert.equal((await notifier.notifyHealth({ status: "DEGRADED", state: "DEGRADED", staleFeeds: ["chainlink"] })).status, "SENT");
+  assert.equal((await notifier.notifyHealth({ status: "DEGRADED", state: "DEGRADED", staleFeeds: ["chainlink"] })).status, "DEDUPLICATED");
+  assert.equal(calls.length, 2);
+});
+
+test("telegram notifier is disabled without secrets", async () => {
+  const { TelegramNotifier } = await import("../src/agent/telegramNotifier.js");
+  const notifier = new TelegramNotifier({ token: "", chatId: "" });
+  assert.equal((await notifier.send("hello")).status, "DISABLED");
+});

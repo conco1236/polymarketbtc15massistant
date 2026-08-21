@@ -1,0 +1,25 @@
+[Unit]
+Description=Polymarket BTC 15m Paper Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__APP_USER__
+Group=__APP_USER__
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=-/etc/polymarket-agent.env
+ExecStart=__NODE_BIN__ __APP_DIR__/src/index.js
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=__APP_DIR__/logs
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
